@@ -1,4 +1,5 @@
 node_modules/
-__pycache__/
-*.pyc
-.venv/
+*.db
+*.db-shm
+*.db-wal
+package-lock.json
