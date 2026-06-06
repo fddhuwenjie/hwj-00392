@@ -16,6 +16,26 @@ function getDB() {
   return db;
 }
 
+function columnExists(tableName, columnName) {
+  const cols = db.prepare(`PRAGMA table_info(${tableName})`).all();
+  return cols.some(c => c.name === columnName);
+}
+
+function migrateTables() {
+  if (!columnExists('surveys', 'scheduled_publish_time')) {
+    db.exec('ALTER TABLE surveys ADD COLUMN scheduled_publish_time TEXT');
+  }
+  if (!columnExists('responses', 'quality_score')) {
+    db.exec('ALTER TABLE responses ADD COLUMN quality_score INTEGER DEFAULT 100');
+  }
+  if (!columnExists('responses', 'quality_flags')) {
+    db.exec('ALTER TABLE responses ADD COLUMN quality_flags TEXT');
+  }
+  if (!columnExists('responses', 'duration_seconds')) {
+    db.exec('ALTER TABLE responses ADD COLUMN duration_seconds INTEGER DEFAULT 0');
+  }
+}
+
 function initDB() {
   const dataDir = path.join(__dirname, 'data');
   if (!fs.existsSync(dataDir)) {
@@ -27,6 +47,7 @@ function initDB() {
   db.pragma('foreign_keys = ON');
 
   createTables();
+  migrateTables();
   seedData();
   return db;
 }
