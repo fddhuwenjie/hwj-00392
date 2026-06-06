@@ -7,7 +7,7 @@ const router = express.Router();
 
 router.get('/csv/:surveyId', (req, res) => {
   const db = getDB();
-  const survey = db.prepare('SELECT * FROM surveys WHERE id = ?').get(req.params.surveyId);
+  const survey = db.prepare('SELECT * FROM surveys WHERE id = ? AND is_deleted = 0').get(req.params.surveyId);
   if (!survey) {
     return res.status(404).json({ error: '问卷不存在' });
   }
@@ -52,7 +52,7 @@ router.get('/csv/:surveyId', (req, res) => {
 router.get('/excel/:surveyId', async (req, res) => {
   try {
     const db = getDB();
-    const survey = db.prepare('SELECT * FROM surveys WHERE id = ?').get(req.params.surveyId);
+    const survey = db.prepare('SELECT * FROM surveys WHERE id = ? AND is_deleted = 0').get(req.params.surveyId);
     if (!survey) {
       return res.status(404).json({ error: '问卷不存在' });
     }
@@ -102,7 +102,7 @@ router.get('/excel/:surveyId', async (req, res) => {
 router.get('/report/:surveyId', async (req, res) => {
   try {
     const db = getDB();
-    const survey = db.prepare('SELECT * FROM surveys WHERE id = ?').get(req.params.surveyId);
+    const survey = db.prepare('SELECT * FROM surveys WHERE id = ? AND is_deleted = 0').get(req.params.surveyId);
     if (!survey) {
       return res.status(404).json({ error: '问卷不存在' });
     }
@@ -135,7 +135,10 @@ router.get('/response/pdf/:responseId', async (req, res) => {
       return res.status(404).json({ error: '答卷不存在' });
     }
 
-    const survey = db.prepare('SELECT * FROM surveys WHERE id = ?').get(response.survey_id);
+    const survey = db.prepare('SELECT * FROM surveys WHERE id = ? AND is_deleted = 0').get(response.survey_id);
+    if (!survey) {
+      return res.status(404).json({ error: '问卷不存在' });
+    }
     const questions = JSON.parse(survey.questions);
     const answers = JSON.parse(response.answers);
 

@@ -25,6 +25,18 @@ function migrateTables() {
   if (!columnExists('surveys', 'scheduled_publish_time')) {
     db.exec('ALTER TABLE surveys ADD COLUMN scheduled_publish_time TEXT');
   }
+  if (!columnExists('surveys', 'is_deleted')) {
+    db.exec('ALTER TABLE surveys ADD COLUMN is_deleted INTEGER DEFAULT 0');
+  }
+  if (!columnExists('surveys', 'deleted_at')) {
+    db.exec('ALTER TABLE surveys ADD COLUMN deleted_at TEXT');
+  }
+  if (!columnExists('surveys', 'original_status')) {
+    db.exec('ALTER TABLE surveys ADD COLUMN original_status TEXT');
+  }
+  if (!columnExists('surveys', 'show_stats_after_submit')) {
+    db.exec('ALTER TABLE surveys ADD COLUMN show_stats_after_submit INTEGER DEFAULT 1');
+  }
   if (!columnExists('responses', 'quality_score')) {
     db.exec('ALTER TABLE responses ADD COLUMN quality_score INTEGER DEFAULT 100');
   }
@@ -48,6 +60,7 @@ function initDB() {
 
   createTables();
   migrateTables();
+  createIndexes();
   seedData();
   return db;
 }
@@ -68,8 +81,23 @@ function createTables() {
       short_code TEXT UNIQUE,
       is_paused INTEGER DEFAULT 0,
       scheduled_publish_time TEXT,
+      is_deleted INTEGER DEFAULT 0,
+      deleted_at TEXT,
+      original_status TEXT,
+      show_stats_after_submit INTEGER DEFAULT 1,
       created_at TEXT DEFAULT (datetime('now','localtime')),
       updated_at TEXT DEFAULT (datetime('now','localtime'))
+    );
+
+    CREATE TABLE IF NOT EXISTS drafts (
+      id TEXT PRIMARY KEY,
+      survey_id TEXT NOT NULL,
+      respondent_identifier TEXT NOT NULL,
+      answers TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      updated_at TEXT DEFAULT (datetime('now','localtime')),
+      FOREIGN KEY (survey_id) REFERENCES surveys(id) ON DELETE CASCADE,
+      UNIQUE(survey_id, respondent_identifier)
     );
 
     CREATE TABLE IF NOT EXISTS responses (
@@ -159,13 +187,19 @@ function createTables() {
       FOREIGN KEY (survey_id) REFERENCES surveys(id) ON DELETE CASCADE,
       UNIQUE(survey_id, milestone)
     );
+  `);
+}
 
+function createIndexes() {
+  db.exec(`
     CREATE INDEX IF NOT EXISTS idx_responses_survey ON responses(survey_id);
     CREATE INDEX IF NOT EXISTS idx_surveys_short ON surveys(short_code);
+    CREATE INDEX IF NOT EXISTS idx_surveys_deleted ON surveys(is_deleted);
     CREATE INDEX IF NOT EXISTS idx_collaborators_survey ON collaborators(survey_id);
     CREATE INDEX IF NOT EXISTS idx_logs_survey ON operation_logs(survey_id);
     CREATE INDEX IF NOT EXISTS idx_quotas_survey ON quota_rules(survey_id);
     CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(is_read);
+    CREATE INDEX IF NOT EXISTS idx_drafts_survey_respondent ON drafts(survey_id, respondent_identifier);
   `);
 }
 

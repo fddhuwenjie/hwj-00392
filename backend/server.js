@@ -14,6 +14,7 @@ const logicRoutes = require('./routes/logic');
 const quotaRoutes = require('./routes/quotas').router;
 const qualityRoutes = require('./routes/quality').router;
 const notificationRoutes = require('./routes/notifications').router;
+const draftRoutes = require('./routes/drafts').router;
 
 const app = express();
 const PORT = 8392;
@@ -38,6 +39,7 @@ app.use('/api/logic', logicRoutes);
 app.use('/api/quotas', quotaRoutes);
 app.use('/api/quality', qualityRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/drafts', draftRoutes);
 
 function startScheduler() {
   const db = getDB();
@@ -47,7 +49,7 @@ function startScheduler() {
       const now = new Date();
       const drafts = db.prepare(`
         SELECT * FROM surveys
-        WHERE status = 'draft' AND scheduled_publish_time IS NOT NULL
+        WHERE status = 'draft' AND scheduled_publish_time IS NOT NULL AND is_deleted = 0
       `).all();
       drafts.forEach(s => {
         if (s.scheduled_publish_time && new Date(s.scheduled_publish_time) <= now) {
@@ -74,7 +76,7 @@ function startScheduler() {
       const surveys = db.prepare(`
         SELECT s.*, COUNT(r.id) as response_count
         FROM surveys s LEFT JOIN responses r ON s.id = r.survey_id
-        WHERE s.status = 'published'
+        WHERE s.status = 'published' AND s.is_deleted = 0
         GROUP BY s.id
       `).all();
       const milestones = [10, 50, 100, 500, 1000, 5000];
@@ -110,7 +112,7 @@ function startScheduler() {
       const startOfDay = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate()).toISOString();
       const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
 
-      const surveys = db.prepare('SELECT * FROM surveys').all();
+      const surveys = db.prepare('SELECT * FROM surveys WHERE is_deleted = 0').all();
       surveys.forEach(s => {
         const yesterdayCount = db.prepare(`
           SELECT COUNT(*) as cnt FROM responses

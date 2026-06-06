@@ -1,8 +1,24 @@
 import axios from 'axios';
 
+const RESPONDENT_ID_KEY = 'survey_respondent_id';
+
+function getOrCreateRespondentId() {
+  let id = localStorage.getItem(RESPONDENT_ID_KEY);
+  if (!id) {
+    id = 'resp_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 10);
+    localStorage.setItem(RESPONDENT_ID_KEY, id);
+  }
+  return id;
+}
+
 const api = axios.create({
   baseURL: '/api',
   timeout: 30000
+});
+
+api.interceptors.request.use((config) => {
+  config.headers['x-respondent-id'] = getOrCreateRespondentId();
+  return config;
 });
 
 export default {
@@ -18,6 +34,9 @@ export default {
   pauseSurvey: (id) => api.post(`/surveys/${id}/pause`),
   resumeSurvey: (id) => api.post(`/surveys/${id}/resume`),
   verifyPassword: (id, password) => api.post(`/surveys/${id}/verify-password`, { password }),
+  getRecycleBin: () => api.get('/surveys/recycle-bin'),
+  restoreSurvey: (id) => api.post(`/surveys/recycle-bin/${id}/restore`),
+  permanentDeleteSurvey: (id) => api.delete(`/surveys/recycle-bin/${id}`),
 
   submitResponse: (data) => api.post('/responses', data),
   getResponses: (surveyId, params) => api.get(`/responses/survey/${surveyId}`, { params }),
@@ -52,7 +71,7 @@ export default {
   simulatePath: (surveyId, answers) => api.post(`/logic/${surveyId}/simulate`, { answers }),
 
   getQuotas: (surveyId) => api.get(`/quotas/${surveyId}`),
-  addQuota: (surveyId, data) => api.post(`/quotas/${surveyId}`, data),
+  addQuota: (surveyId, data) => api.post(`/quotas/${surveyId}`),
   updateQuota: (surveyId, ruleId, data) => api.put(`/quotas/${surveyId}/${ruleId}`, data),
   deleteQuota: (surveyId, ruleId) => api.delete(`/quotas/${surveyId}/${ruleId}`),
 
@@ -64,5 +83,11 @@ export default {
   markNotificationRead: (id) => api.post(`/notifications/${id}/read`),
   markAllNotificationsRead: () => api.post('/notifications/read-all'),
   deleteNotification: (id) => api.delete(`/notifications/${id}`),
-  clearNotifications: (data) => api.delete('/notifications', { data })
+  clearNotifications: (data) => api.delete('/notifications', { data }),
+
+  saveDraft: (data) => api.post('/drafts', data),
+  getDraft: (surveyId) => api.get(`/drafts/survey/${surveyId}`),
+  getMyDrafts: () => api.get('/drafts'),
+  deleteDraft: (surveyId) => api.delete(`/drafts/survey/${surveyId}`),
+  deleteDraftById: (id) => api.delete(`/drafts/${id}`)
 };

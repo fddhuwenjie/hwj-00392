@@ -95,7 +95,7 @@ function analyzeQuality(survey, response) {
 
 router.post('/survey/:surveyId/analyze', (req, res) => {
   const db = getDB();
-  const survey = db.prepare('SELECT questions FROM surveys WHERE id = ?').get(req.params.surveyId);
+  const survey = db.prepare('SELECT questions FROM surveys WHERE id = ? AND is_deleted = 0').get(req.params.surveyId);
   if (!survey) {
     return res.status(404).json({ error: '问卷不存在' });
   }

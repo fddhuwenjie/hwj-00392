@@ -5,7 +5,7 @@ const router = express.Router();
 
 router.get('/:surveyId/validate', (req, res) => {
   const db = getDB();
-  const survey = db.prepare('SELECT questions FROM surveys WHERE id = ?').get(req.params.surveyId);
+  const survey = db.prepare('SELECT questions FROM surveys WHERE id = ? AND is_deleted = 0').get(req.params.surveyId);
   if (!survey) {
     return res.status(404).json({ error: '问卷不存在' });
   }
@@ -113,7 +113,7 @@ router.get('/:surveyId/validate', (req, res) => {
 
 router.post('/:surveyId/simulate', (req, res) => {
   const db = getDB();
-  const survey = db.prepare('SELECT questions FROM surveys WHERE id = ?').get(req.params.surveyId);
+  const survey = db.prepare('SELECT questions FROM surveys WHERE id = ? AND is_deleted = 0').get(req.params.surveyId);
   if (!survey) {
     return res.status(404).json({ error: '问卷不存在' });
   }

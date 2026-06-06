@@ -43,7 +43,7 @@ export default function SurveyList() {
   const handleDelete = async (id) => {
     try {
       await api.deleteSurvey(id);
-      message.success('删除成功');
+      message.success('已移入回收站，30天内可恢复');
       loadSurveys();
     } catch (e) {
       message.error('删除失败');
@@ -178,7 +178,12 @@ export default function SurveyList() {
             <Button type="link" size="small" icon={<LinkOutlined />} onClick={() => showQrModal(r)}>链接</Button>
           )}
           <Button type="link" size="small" icon={<CopyOutlined />} onClick={() => handleCopy(r.id)}>复制</Button>
-          <Popconfirm title="确定删除？" onConfirm={() => handleDelete(r.id)}>
+          <Popconfirm
+            title="确定删除该问卷？"
+            description="删除后将移入回收站，30天内可恢复，过期自动永久删除"
+            onConfirm={() => handleDelete(r.id)}
+            okText="移入回收站"
+          >
             <Button type="link" size="small" danger icon={<DeleteOutlined />}>删除</Button>
           </Popconfirm>
         </Space>
@@ -201,6 +206,7 @@ export default function SurveyList() {
           </Col>
           <Col xs={24} sm={24} md={10} style={{ textAlign: 'right' }}>
             <Space>
+              <Button icon={<DeleteOutlined />} onClick={() => navigate('/recycle-bin')}>回收站</Button>
               <Button onClick={() => navigate('/templates')}>从模板创建</Button>
               <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/editor')}>创建问卷</Button>
             </Space>

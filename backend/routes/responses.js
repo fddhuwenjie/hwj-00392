@@ -4,18 +4,20 @@ const { getDB } = require('../db');
 const { getCurrentCount } = require('./quotas');
 const { analyzeQuality } = require('./quality');
 const { addNotification } = require('./notifications');
+const { getRespondentIdentifier } = require('./drafts');
 
 const router = express.Router();
 
 router.post('/', (req, res) => {
   const db = getDB();
   const { survey_id, answers, respondent_info, duration_seconds } = req.body;
+  const respondent_identifier = getRespondentIdentifier(req);
 
   if (!survey_id || !answers) {
     return res.status(400).json({ error: '参数不完整' });
   }
 
-  const survey = db.prepare('SELECT * FROM surveys WHERE id = ?').get(survey_id);
+  const survey = db.prepare('SELECT * FROM surveys WHERE id = ? AND is_deleted = 0').get(survey_id);
   if (!survey) {
     return res.status(404).json({ error: '问卷不存在' });
   }
@@ -63,43 +65,61 @@ router.post('/', (req, res) => {
   const tempResp = { answers: JSON.stringify(answers), duration_seconds: duration_seconds || 0 };
   const { score, flags } = analyzeQuality(survey, tempResp);
 
-  const info = db.prepare(`
+  const insertResp = db.prepare(`
     INSERT INTO responses (id, survey_id, answers, respondent_info, quality_score, quality_flags, duration_seconds)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id,
-    survey_id,
-    JSON.stringify(answers),
-    respondent_info ? JSON.stringify(respondent_info) : null,
-    score,
-    JSON.stringify(flags),
-    duration_seconds || 0
-  );
+  `);
 
-  if (info.changes > 0) {
-    const totalCount = db.prepare('SELECT COUNT(*) as cnt FROM responses WHERE survey_id = ?').get(survey_id).cnt;
-    const milestones = [10, 50, 100, 500, 1000, 5000];
-    milestones.forEach(m => {
-      if (totalCount === m) {
-        const notified = db.prepare('SELECT * FROM milestone_notified WHERE survey_id = ? AND milestone = ?').get(survey_id, m);
-        if (!notified) {
-          db.prepare(`
-            INSERT INTO milestone_notified (id, survey_id, milestone)
-            VALUES (?, ?, ?)
-          `).run(uuidv4(), survey_id, m);
-          addNotification(db, {
-            survey_id,
-            type: 'milestone',
-            title: '回收里程碑达成!',
-            content: `问卷"${survey.title}"已收集${m}份答卷!`
-          });
-        }
-      }
-    });
-    res.json({ id, success: true, quality_score: score, quality_flags: flags });
-  } else {
-    res.status(500).json({ error: '提交失败' });
+  const deleteDraft = db.prepare(`
+    DELETE FROM drafts WHERE survey_id = ? AND respondent_identifier = ?
+  `);
+
+  const tx = db.transaction(() => {
+    insertResp.run(
+      id,
+      survey_id,
+      JSON.stringify(answers),
+      respondent_info ? JSON.stringify(respondent_info) : null,
+      score,
+      JSON.stringify(flags),
+      duration_seconds || 0
+    );
+    deleteDraft.run(survey_id, respondent_identifier);
+  });
+
+  try {
+    tx();
+  } catch (e) {
+    return res.status(500).json({ error: '提交失败' });
   }
+
+  const totalCount = db.prepare('SELECT COUNT(*) as cnt FROM responses WHERE survey_id = ?').get(survey_id).cnt;
+  const milestones = [10, 50, 100, 500, 1000, 5000];
+  milestones.forEach(m => {
+    if (totalCount === m) {
+      const notified = db.prepare('SELECT * FROM milestone_notified WHERE survey_id = ? AND milestone = ?').get(survey_id, m);
+      if (!notified) {
+        db.prepare(`
+          INSERT INTO milestone_notified (id, survey_id, milestone)
+          VALUES (?, ?, ?)
+        `).run(uuidv4(), survey_id, m);
+        addNotification(db, {
+          survey_id,
+          type: 'milestone',
+          title: '回收里程碑达成!',
+          content: `问卷"${survey.title}"已收集${m}份答卷!`
+        });
+      }
+    }
+  });
+  res.json({
+    id,
+    success: true,
+    quality_score: score,
+    quality_flags: flags,
+    show_stats_after_submit: survey.show_stats_after_submit === 1,
+    survey_id: survey_id
+  });
 });
 
 router.get('/survey/:surveyId', (req, res) => {

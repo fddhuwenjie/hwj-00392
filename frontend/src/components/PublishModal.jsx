@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Form, DatePicker, InputNumber, Input, Button, message, App, Card, Tag, Space, Alert } from 'antd';
-import { LinkOutlined, ScheduleOutlined, RocketOutlined } from '@ant-design/icons';
+import { Modal, Form, DatePicker, InputNumber, Input, Button, message, App, Card, Tag, Space, Alert, Switch } from 'antd';
+import { LinkOutlined, ScheduleOutlined, RocketOutlined, BarChartOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api';
 
@@ -26,7 +26,8 @@ export default function PublishModal({ visible, surveyId, onClose }) {
         end_time: s.end_time ? dayjs(s.end_time) : null,
         max_responses: s.max_responses,
         password: s.password || '',
-        scheduled_publish_time: s.scheduled_publish_time ? dayjs(s.scheduled_publish_time) : null
+        scheduled_publish_time: s.scheduled_publish_time ? dayjs(s.scheduled_publish_time) : null,
+        show_stats_after_submit: s.show_stats_after_submit !== false
       });
       if (s.scheduled_publish_time) {
         setPublishMode('scheduled');
@@ -45,7 +46,8 @@ export default function PublishModal({ visible, surveyId, onClose }) {
         start_time: values.start_time ? values.start_time.toISOString() : null,
         end_time: values.end_time ? values.end_time.toISOString() : null,
         max_responses: values.max_responses || null,
-        password: values.password || null
+        password: values.password || null,
+        show_stats_after_submit: values.show_stats_after_submit !== false
       };
       if (publishMode === 'scheduled' && values.scheduled_publish_time) {
         data.scheduled_publish_time = values.scheduled_publish_time.toISOString();
@@ -165,6 +167,14 @@ export default function PublishModal({ visible, surveyId, onClose }) {
           </Form.Item>
           <Form.Item label="访问密码（可选）" name="password">
             <Input.Password placeholder="留空则无需密码" />
+          </Form.Item>
+          <Form.Item
+            label="提交后显示统计"
+            name="show_stats_after_submit"
+            valuePropName="checked"
+            tooltip="开启后，答卷人提交后将自动跳转到实时统计结果页"
+          >
+            <Switch checkedChildren={<BarChartOutlined />} unCheckedChildren="关闭" defaultChecked />
           </Form.Item>
           <div style={{ textAlign: 'right', marginTop: 16 }}>
             <Button onClick={onClose} style={{ marginRight: 8 }}>取消</Button>

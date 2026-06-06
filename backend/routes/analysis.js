@@ -15,7 +15,7 @@ function getAllResponses(surveyId) {
 
 router.get('/survey/:surveyId', (req, res) => {
   const db = getDB();
-  const survey = db.prepare('SELECT * FROM surveys WHERE id = ?').get(req.params.surveyId);
+  const survey = db.prepare('SELECT * FROM surveys WHERE id = ? AND is_deleted = 0').get(req.params.surveyId);
   if (!survey) {
     return res.status(404).json({ error: '问卷不存在' });
   }
@@ -288,7 +288,7 @@ router.get('/cross/:surveyId', (req, res) => {
     return res.status(400).json({ error: '需要指定两个题目ID' });
   }
 
-  const survey = db.prepare('SELECT * FROM surveys WHERE id = ?').get(req.params.surveyId);
+  const survey = db.prepare('SELECT * FROM surveys WHERE id = ? AND is_deleted = 0').get(req.params.surveyId);
   if (!survey) {
     return res.status(404).json({ error: '问卷不存在' });
   }

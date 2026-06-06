@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card, Button, Progress, Radio, Checkbox, Input, InputNumber,
-  Modal, message, Empty, Result, Form, App
+  Modal, message, Empty, Result, Form, App, Space, Tag
 } from 'antd';
 import {
-  LeftOutlined, RightOutlined, CheckOutlined, ReloadOutlined
+  LeftOutlined, RightOutlined, CheckOutlined, ReloadOutlined,
+  SaveOutlined, DeleteOutlined
 } from '@ant-design/icons';
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
@@ -189,17 +190,37 @@ export default function FillSurvey() {
   const [finished, setFinished] = useState(false);
   const [errorState, setErrorState] = useState(null);
   const [startTime, setStartTime] = useState(null);
+  const [hasDraft, setHasDraft] = useState(false);
+  const [draftSaved, setDraftSaved] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const autoSaveTimer = useRef(null);
   const { message } = App.useApp();
 
   useEffect(() => {
     loadSurvey();
+    return () => {
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    };
   }, [code]);
 
   useEffect(() => {
     if (survey && !needPassword && !errorState && !finished) {
       setStartTime(Date.now());
+      loadDraft();
     }
   }, [survey, needPassword, errorState, finished]);
+
+  useEffect(() => {
+    if (survey && Object.keys(answers).length > 0 && !finished) {
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+      autoSaveTimer.current = setTimeout(() => {
+        handleSaveDraft(true);
+      }, 3000);
+    }
+    return () => {
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    };
+  }, [answers]);
 
   const loadSurvey = async () => {
     try {
@@ -233,6 +254,70 @@ export default function FillSurvey() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadDraft = async () => {
+    try {
+      const res = await api.getDraft(survey.id);
+      if (res.data && res.data.answers) {
+        Modal.confirm({
+          title: '检测到未完成的草稿',
+          content: '是否恢复上次填写的内容？',
+          okText: '恢复草稿',
+          cancelText: '重新开始',
+          onOk: () => {
+            setAnswers(res.data.answers);
+            setHasDraft(true);
+            message.success('已恢复草稿');
+          },
+          onCancel: async () => {
+            await api.deleteDraft(survey.id).catch(() => {});
+            setHasDraft(false);
+          }
+        });
+      }
+    } catch (e) {
+    }
+  };
+
+  const handleSaveDraft = async (silent = false) => {
+    if (!survey || Object.keys(answers).length === 0) {
+      if (!silent) message.warning('暂无可保存的内容');
+      return;
+    }
+    try {
+      setSavingDraft(true);
+      await api.saveDraft({
+        survey_id: survey.id,
+        answers
+      });
+      setHasDraft(true);
+      setDraftSaved(true);
+      if (!silent) message.success('草稿已保存');
+      setTimeout(() => setDraftSaved(false), 2000);
+    } catch (e) {
+      if (!silent) message.error(e.response?.data?.error || '保存失败');
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  const handleClearDraft = async () => {
+    if (!survey) return;
+    Modal.confirm({
+      title: '确认清除草稿？',
+      content: '清除后将无法恢复当前填写的内容',
+      onOk: async () => {
+        try {
+          await api.deleteDraft(survey.id);
+          setAnswers({});
+          setHasDraft(false);
+          message.success('已清除草稿');
+        } catch (e) {
+          message.error('清除失败');
+        }
+      }
+    });
   };
 
   const verifyPassword = async () => {
@@ -335,13 +420,18 @@ export default function FillSurvey() {
     setSubmitting(true);
     try {
       const durationSeconds = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
-      await api.submitResponse({
+      const res = await api.submitResponse({
         survey_id: survey.id,
         answers,
         respondent_info: { device: navigator.userAgent.substring(0, 100) },
         duration_seconds: durationSeconds
       });
       setFinished(true);
+      if (res.data.show_stats_after_submit) {
+        setTimeout(() => {
+          navigate(`/result/${survey.id}`);
+        }, 500);
+      }
     } catch (e) {
       const errorMsg = e.response?.data?.error || '提交失败';
       if (errorMsg.includes('配额') || errorMsg.includes('已满') || errorMsg.includes('quota')) {
@@ -389,20 +479,27 @@ export default function FillSurvey() {
   }
 
   if (finished) {
+    const showStats = survey.show_stats_after_submit;
     return (
       <div className="fill-page">
         <Card className="fill-survey-card">
           <Result
             status="success"
             title="提交成功！"
-            subTitle="感谢您的参与，您的反馈对我们非常重要。"
+            subTitle={showStats ? '正在为您跳转至统计结果页...' : '感谢您的参与，您的反馈对我们非常重要。'}
             extra={[
-              <Button type="primary" icon={<ReloadOutlined />} onClick={() => {
-                setAnswers({});
-                setCurrentIndex(0);
-                setFinished(false);
-                setErrors({});
-              }}>再填一份</Button>,
+              showStats ? (
+                <Button type="primary" onClick={() => navigate(`/result/${survey.id}`)}>
+                  查看统计结果
+                </Button>
+              ) : (
+                <Button type="primary" icon={<ReloadOutlined />} onClick={() => {
+                  setAnswers({});
+                  setCurrentIndex(0);
+                  setFinished(false);
+                  setErrors({});
+                }}>再填一份</Button>
+              ),
               <Button onClick={() => navigate('/')}>返回首页</Button>
             ]}
           />
@@ -418,9 +515,36 @@ export default function FillSurvey() {
   return (
     <div className="fill-page">
       <Card className="fill-survey-card">
-        <div style={{ marginBottom: 24 }}>
-          <h1 style={{ fontSize: 22, marginBottom: 8 }}>{survey.title}</h1>
-          {survey.description && <p style={{ color: '#666' }}>{survey.description}</p>}
+        <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <h1 style={{ fontSize: 22, marginBottom: 8 }}>{survey.title}</h1>
+            {survey.description && <p style={{ color: '#666' }}>{survey.description}</p>}
+          </div>
+          <Space size="small">
+            {hasDraft && (
+              <Tag color="blue" icon={<SaveOutlined />}>
+                {draftSaved ? '已自动保存' : '已有草稿'}
+              </Tag>
+            )}
+            <Button
+              size="small"
+              icon={<SaveOutlined />}
+              onClick={() => handleSaveDraft(false)}
+              loading={savingDraft}
+            >
+              保存草稿
+            </Button>
+            {hasDraft && (
+              <Button
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                onClick={handleClearDraft}
+              >
+                清除
+              </Button>
+            )}
+          </Space>
         </div>
 
         <div style={{ marginBottom: 24 }}>
