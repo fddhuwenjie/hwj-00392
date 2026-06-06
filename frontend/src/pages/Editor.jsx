@@ -8,7 +8,7 @@ import {
   CheckCircleOutlined, CheckSquareOutlined, EditOutlined, StarOutlined,
   OrderedListOutlined, SmileOutlined, TableOutlined, MenuOutlined,
   DeleteOutlined, PlusOutlined, SaveOutlined, SendOutlined, ArrowLeftOutlined,
-  BranchOutlined, MinusCircleOutlined
+  ForkOutlined, MinusCircleOutlined
 } from '@ant-design/icons';
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
@@ -88,7 +88,7 @@ function SortableQuestion({ question, index, isActive, onSelect, onDelete }) {
           <Tag color="blue">Q{index + 1}</Tag>
           <Tag>{QUESTION_TYPES.find(t => t.type === question.type)?.label}</Tag>
           {question.required && <Tag color="red">必填</Tag>}
-          {question.branching && <Tag color="purple" icon={<BranchOutlined />}>分支</Tag>}
+          {question.branching && <Tag color="purple" icon={<ForkOutlined />}>分支</Tag>}
         </div>
         <Button type="text" danger icon={<DeleteOutlined />} onClick={(e) => { e.stopPropagation(); onDelete(question.id); }} />
       </div>
@@ -294,7 +294,7 @@ export default function Editor() {
           )}
 
           {q.type === 'single' && activeIndex < questions.length - 1 && (
-            <Form.Item label={<span><BranchOutlined /> 分支逻辑（根据答案跳转）</span>}>
+            <Form.Item label={<span><ForkOutlined /> 分支逻辑（根据答案跳转）</span>}>
               {q.options.map((opt, i) => {
                 const branchKey = `${q.id}_option_${i}`;
                 return (
