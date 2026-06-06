@@ -154,13 +154,38 @@ router.post('/:id/publish', (req, res) => {
     return res.status(404).json({ error: '问卷不存在' });
   }
 
-  const { start_time, end_time, max_responses, password } = req.body;
+  const { start_time, end_time, max_responses, password, scheduled_publish_time } = req.body;
   const shortCode = existing.short_code || generateShortCode();
+
+  if (scheduled_publish_time) {
+    const info = db.prepare(`
+      UPDATE surveys
+      SET scheduled_publish_time = ?, start_time = ?, end_time = ?,
+          max_responses = ?, password = ?, short_code = ?,
+          updated_at = datetime('now','localtime')
+      WHERE id = ?
+    `).run(
+      scheduled_publish_time,
+      start_time || null,
+      end_time || null,
+      max_responses || null,
+      password || null,
+      shortCode,
+      req.params.id
+    );
+    if (info.changes > 0) {
+      res.json({ success: true, short_code: shortCode, scheduled: true, scheduled_publish_time });
+    } else {
+      res.status(500).json({ error: '定时发布设置失败' });
+    }
+    return;
+  }
 
   const info = db.prepare(`
     UPDATE surveys
     SET status = 'published', start_time = ?, end_time = ?,
         max_responses = ?, password = ?, short_code = ?,
+        scheduled_publish_time = NULL,
         updated_at = datetime('now','localtime')
     WHERE id = ?
   `).run(

@@ -407,6 +407,80 @@ body {
   box-shadow: 0 8px 24px rgba(24, 144, 255, 0.2);
 }
 
+.question-locked {
+  position: relative;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.lock-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  z-index: 10;
+  pointer-events: auto;
+}
+
+.lock-overlay-content {
+  text-align: center;
+  padding: 16px;
+}
+
+.lock-overlay-user {
+  font-weight: 600;
+  color: #1890ff;
+  margin-bottom: 4px;
+}
+
+.lock-overlay-text {
+  color: #8c8c8c;
+  font-size: 13px;
+}
+
+.scheduled-tag {
+  margin-left: 4px;
+}
+
+.notification-badge-wrapper {
+  cursor: pointer;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.notification-badge-wrapper:hover {
+  background: #f5f5f5;
+}
+
+.quality-score-high {
+  color: #52c41a;
+  font-weight: 600;
+}
+
+.quality-score-medium {
+  color: #faad14;
+  font-weight: 600;
+}
+
+.quality-score-low {
+  color: #f5222d;
+  font-weight: 600;
+}
+
+.quota-progress-card {
+  margin-bottom: 12px;
+}
+
+.quota-full {
+  color: #f5222d;
+  font-weight: 600;
+}
+
 @media (max-width: 768px) {
   .app-header {
     padding: 0 12px;

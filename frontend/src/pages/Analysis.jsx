@@ -2,21 +2,25 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Button, Card, Row, Col, Tabs, Select, Form, Table, Tag, Modal,
-  Statistic, DatePicker, Input, Space, Empty, App
+  Statistic, DatePicker, Input, Space, Empty, App, Checkbox, Slider,
+  Popconfirm, message, Tooltip, Alert
 } from 'antd';
 import {
   ArrowLeftOutlined, DownloadOutlined, PieChartOutlined,
-  BarChartOutlined, FileExcelOutlined, FileTextOutlined, EyeOutlined
+  BarChartOutlined, FileExcelOutlined, FileTextOutlined, EyeOutlined,
+  DeleteOutlined, SafetyOutlined, FilterOutlined, DashboardOutlined
 } from '@ant-design/icons';
 import {
-  Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale,
+  Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend, CategoryScale,
   LinearScale, BarElement, Title
 } from 'chart.js';
 import { Pie, Bar } from 'react-chartjs-2';
 import api from '../api';
 import dayjs from 'dayjs';
+import QualityPanel, { FLAG_LABELS, scoreColor, scoreLabel } from '../components/QualityPanel.jsx';
+import { QuotaProgressDisplay } from '../components/QuotaPanel.jsx';
 
-ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
+ChartJS.register(ArcElement, ChartTooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
 
 const { Option } = Select;
 const { RangePicker } = DatePicker;
@@ -355,35 +359,71 @@ function CrossAnalysis({ questions }) {
   );
 }
 
-function DataList({ surveyId, questions }) {
+function DataList({ surveyId, questions, onDataChange }) {
   const [data, setData] = useState({ list: [], total: 0 });
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState({});
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [detailModal, setDetailModal] = useState({ visible: false, response: null });
-
-  useEffect(() => {
-    loadData();
-  }, [surveyId, page, pageSize, filters]);
+  const [minQuality, setMinQuality] = useState(null);
+  const [maxQuality, setMaxQuality] = useState(null);
+  const [selectedRowKeys, setSelectedRowKeys] = useState([]);
 
   const loadData = async () => {
     setLoading(true);
     try {
       const filterStr = Object.keys(filters).length > 0 ? JSON.stringify(filters) : undefined;
-      const res = await api.getResponses(surveyId, { page, pageSize, filters: filterStr });
+      const params = { page, pageSize, filters: filterStr };
+      if (minQuality !== null && minQuality !== '') params.min_quality = minQuality;
+      if (maxQuality !== null && maxQuality !== '') params.max_quality = maxQuality;
+      const res = await api.getResponses(surveyId, params);
       setData(res.data);
     } catch (e) { } finally { setLoading(false); }
   };
+
+  useEffect(() => {
+    loadData();
+  }, [surveyId, page, pageSize, filters, minQuality, maxQuality]);
 
   const handleExportResponse = (respId) => {
     window.open(api.exportResponsePdf(respId), '_blank');
   };
 
+  const handleBatchDelete = async () => {
+    try {
+      if (selectedRowKeys.length > 0) {
+        await api.batchDeleteResponses(surveyId, { ids: selectedRowKeys });
+        message.success(`已删除 ${selectedRowKeys.length} 份答卷`);
+      }
+      setSelectedRowKeys([]);
+      loadData();
+      if (onDataChange) onDataChange();
+    } catch (e) {
+      message.error('删除失败');
+    }
+  };
+
   const columns = [
     { title: '序号', dataIndex: 'index', key: 'index', width: 60, render: (_, __, i) => (page - 1) * pageSize + i + 1 },
+    {
+      title: '质量分',
+      dataIndex: 'quality_score',
+      key: 'quality_score',
+      width: 100,
+      render: (v, r) => (
+        <Space>
+          <b style={{ color: scoreColor(v ?? 100) }}>{v ?? 100}</b>
+          {(r.quality_flags || []).length > 0 && (
+            <Tooltip title={r.quality_flags.map(f => FLAG_LABELS[f]?.label || f).join('、')}>
+              <Tag color="red" style={{ fontSize: 10, padding: '0 4px' }}>!</Tag>
+            </Tooltip>
+          )}
+        </Space>
+      )
+    },
     { title: '提交时间', dataIndex: 'submit_time', key: 'submit_time', width: 170, render: t => dayjs(t).format('YYYY-MM-DD HH:mm:ss') },
-    ...questions.slice(0, 4).map(q => ({
+    ...questions.slice(0, 3).map(q => ({
       title: q.title.substring(0, 12),
       dataIndex: ['answers', q.id],
       key: q.id,
@@ -396,7 +436,7 @@ function DataList({ surveyId, questions }) {
       }
     })),
     {
-      title: '操作', key: 'action', width: 140,
+      title: '操作', key: 'action', width: 180,
       render: (_, r) => (
         <Space>
           <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => setDetailModal({ visible: true, response: r })}>详情</Button>
@@ -409,28 +449,56 @@ function DataList({ surveyId, questions }) {
   return (
     <div>
       <Card style={{ marginBottom: 16 }}>
-        <div style={{ fontWeight: 'bold', marginBottom: 12 }}>筛选条件</div>
-        <Row gutter={[16, 12]}>
-          {questions.filter(q => ['single', 'multi'].includes(q.type)).slice(0, 4).map(q => (
-            <Col xs={24} md={6} key={q.id}>
-              <Select
-                mode={q.type === 'multi' ? 'multiple' : undefined}
-                style={{ width: '100%' }}
-                placeholder={q.title.substring(0, 15)}
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Space>
+            <span style={{ fontWeight: 'bold' }}><FilterOutlined /> 筛选条件</span>
+          </Space>
+          <Row gutter={[16, 12]}>
+            {questions.filter(q => ['single', 'multi'].includes(q.type)).slice(0, 3).map(q => (
+              <Col xs={24} md={6} key={q.id}>
+                <Select
+                  mode={q.type === 'multi' ? 'multiple' : undefined}
+                  style={{ width: '100%' }}
+                  placeholder={q.title.substring(0, 15)}
+                  allowClear
+                  value={filters[q.id]}
+                  onChange={(v) => {
+                    const nf = { ...filters };
+                    if (v && (Array.isArray(v) ? v.length : true)) nf[q.id] = v; else delete nf[q.id];
+                    setFilters(nf);
+                    setPage(1);
+                  }}
+                >
+                  {q.options.map(o => <Option key={o} value={o}>{o}</Option>)}
+                </Select>
+              </Col>
+            ))}
+            <Col xs={24} md={6}>
+              <Input
+                type="number"
+                placeholder="最低质量分"
                 allowClear
-                value={filters[q.id]}
-                onChange={(v) => {
-                  const nf = { ...filters };
-                  if (v && (Array.isArray(v) ? v.length : true)) nf[q.id] = v; else delete nf[q.id];
-                  setFilters(nf);
-                  setPage(1);
-                }}
-              >
-                {q.options.map(o => <Option key={o} value={o}>{o}</Option>)}
-              </Select>
+                value={minQuality}
+                onChange={(e) => { setMinQuality(e.target.value); setPage(1); }}
+                addonBefore={<SafetyOutlined />}
+              />
             </Col>
-          ))}
-        </Row>
+            <Col xs={24} md={6}>
+              <Space>
+                {selectedRowKeys.length > 0 && (
+                  <Popconfirm
+                    title={`确定删除选中的 ${selectedRowKeys.length} 份答卷吗？`}
+                    onConfirm={handleBatchDelete}
+                    okButtonProps={{ danger: true }}
+                  >
+                    <Button danger icon={<DeleteOutlined />}>批量删除({selectedRowKeys.length})</Button>
+                  </Popconfirm>
+                )}
+                <Button onClick={loadData}>刷新</Button>
+              </Space>
+            </Col>
+          </Row>
+        </Space>
       </Card>
       <Card>
         <Table
@@ -438,6 +506,10 @@ function DataList({ surveyId, questions }) {
           loading={loading}
           dataSource={data.list}
           columns={columns}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: setSelectedRowKeys
+          }}
           pagination={{
             current: page,
             pageSize,
@@ -465,8 +537,18 @@ function DataList({ surveyId, questions }) {
       >
         {detailModal.response && (
           <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-            <div style={{ color: '#999', marginBottom: 16 }}>
-              提交时间: {dayjs(detailModal.response.submit_time).format('YYYY-MM-DD HH:mm:ss')}
+            <div style={{ color: '#999', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>提交时间: {dayjs(detailModal.response.submit_time).format('YYYY-MM-DD HH:mm:ss')}</span>
+              <Space>
+                <Tag color={scoreColor(detailModal.response.quality_score ?? 100)}>
+                  质量分: {detailModal.response.quality_score ?? 100}
+                </Tag>
+                {(detailModal.response.quality_flags || []).map(f => (
+                  <Tag key={f} color={FLAG_LABELS[f]?.color || 'default'} icon={FLAG_LABELS[f]?.icon}>
+                    {FLAG_LABELS[f]?.label || f}
+                  </Tag>
+                ))}
+              </Space>
             </div>
             {questions.map(q => (
               <div key={q.id} className="confirm-item">
@@ -496,20 +578,26 @@ export default function Analysis() {
   const [survey, setSurvey] = useState(null);
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [quotas, setQuotas] = useState([]);
   const { message } = App.useApp();
-
-  useEffect(() => { loadData(); }, [id]);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [sRes, aRes] = await Promise.all([api.getSurvey(id), api.getAnalysis(id)]);
+      const [sRes, aRes, qRes] = await Promise.all([
+        api.getSurvey(id),
+        api.getAnalysis(id),
+        api.getQuotas(id).catch(() => ({ data: [] }))
+      ]);
       setSurvey(sRes.data);
       setAnalysis(aRes.data);
+      setQuotas(qRes.data || []);
     } catch (e) {
       message.error('加载失败');
     } finally { setLoading(false); }
   };
+
+  useEffect(() => { loadData(); }, [id]);
 
   if (loading) return <div style={{ padding: 80, textAlign: 'center' }}>加载中...</div>;
   if (!survey) return <Empty />;
@@ -532,6 +620,16 @@ export default function Analysis() {
       ))
     },
     {
+      key: 'quality',
+      label: <span><SafetyOutlined /> 答卷质量</span>,
+      children: (
+        <>
+          <QualityPanel surveyId={id} onDataChange={loadData} />
+          {quotas.length > 0 && <QuotaProgressDisplay quotas={quotas} />}
+        </>
+      )
+    },
+    {
       key: 'cross',
       label: <span><BarChartOutlined /> 交叉分析</span>,
       children: <CrossAnalysis questions={questions} />
@@ -539,7 +637,7 @@ export default function Analysis() {
     {
       key: 'data',
       label: <span><FileTextOutlined /> 原始数据</span>,
-      children: <DataList surveyId={id} questions={questions} />
+      children: <DataList surveyId={id} questions={questions} onDataChange={loadData} />
     }
   ];
 
@@ -551,6 +649,9 @@ export default function Analysis() {
             <Space>
               <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/surveys')}>返回</Button>
               <span style={{ fontSize: 18, fontWeight: 'bold' }}>{survey.title}</span>
+              {survey.scheduled_publish_time && (
+                <Tag color="purple">定时发布: {dayjs(survey.scheduled_publish_time).format('YYYY-MM-DD HH:mm')}</Tag>
+              )}
             </Space>
           </Col>
           <Col>

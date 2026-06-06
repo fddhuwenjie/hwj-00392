@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Button, Input, Card, Space, message, Modal, Form, Select, Switch,
-  InputNumber, DatePicker, Popconfirm, Tag, Empty, App
+  InputNumber, DatePicker, Popconfirm, Tag, Empty, App, Tooltip
 } from 'antd';
 import {
   CheckCircleOutlined, CheckSquareOutlined, EditOutlined, StarOutlined,
   OrderedListOutlined, SmileOutlined, TableOutlined, MenuOutlined,
   DeleteOutlined, PlusOutlined, SaveOutlined, SendOutlined, ArrowLeftOutlined,
-  ForkOutlined, MinusCircleOutlined
+  ForkOutlined, MinusCircleOutlined, TeamOutlined, LockOutlined
 } from '@ant-design/icons';
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
@@ -22,6 +22,9 @@ import { CSS } from '@dnd-kit/utilities';
 import api from '../api';
 import dayjs from 'dayjs';
 import PublishModal from '../components/PublishModal.jsx';
+import { CollaboratorPanel, EditLockBadge, CURRENT_USER } from '../components/CollaborationPanel.jsx';
+import LogicValidatorPanel from '../components/LogicValidatorPanel.jsx';
+import { QuotaPanel } from '../components/QuotaPanel.jsx';
 
 const { TextArea } = Input;
 const { Option } = Select;
@@ -67,7 +70,7 @@ function createQuestion(type) {
   }
 }
 
-function SortableQuestion({ question, index, isActive, onSelect, onDelete }) {
+function SortableQuestion({ question, index, isActive, onSelect, onDelete, lock }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: question.id });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -75,13 +78,22 @@ function SortableQuestion({ question, index, isActive, onSelect, onDelete }) {
     opacity: isDragging ? 0.5 : 1
   };
 
+  const isLocked = lock && lock.user_email !== CURRENT_USER.email;
+
   return (
     <div
       ref={setNodeRef}
-      style={style}
-      className={`question-item ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''}`}
-      onClick={() => onSelect(question.id)}
+      style={{ ...style, position: 'relative' }}
+      className={`question-item ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''} ${isLocked ? 'question-locked' : ''}`}
+      onClick={(e) => { if (!isLocked) onSelect(question.id); }}
     >
+      {isLocked && (
+        <div className="lock-overlay">
+          <Tag color="orange" icon={<LockOutlined />}>
+            {lock.user_name || lock.user_email} 正在编辑
+          </Tag>
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <span className="drag-handle" {...attributes} {...listeners}><MenuOutlined /></span>
@@ -90,7 +102,7 @@ function SortableQuestion({ question, index, isActive, onSelect, onDelete }) {
           {question.required && <Tag color="red">必填</Tag>}
           {question.branching && <Tag color="purple" icon={<ForkOutlined />}>分支</Tag>}
         </div>
-        <Button type="text" danger icon={<DeleteOutlined />} onClick={(e) => { e.stopPropagation(); onDelete(question.id); }} />
+        <Button type="text" danger icon={<DeleteOutlined />} disabled={isLocked} onClick={(e) => { e.stopPropagation(); onDelete(question.id); }} />
       </div>
       <div style={{ fontSize: 14, color: '#333', lineHeight: 1.6, paddingLeft: 28 }}>
         {question.title || <span style={{ color: '#ccc' }}>请输入题目标题</span>}
@@ -112,6 +124,11 @@ export default function Editor() {
   const [publishVisible, setPublishVisible] = useState(false);
   const [saving, setSaving] = useState(false);
   const [surveyId, setSurveyId] = useState(id || null);
+  const [collabVisible, setCollabVisible] = useState(false);
+  const [quotaVisible, setQuotaVisible] = useState(false);
+  const [locks, setLocks] = useState([]);
+  const lastQuestionsRef = useRef([]);
+  const lastTitleRef = useRef('');
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -124,6 +141,16 @@ export default function Editor() {
     }
   }, [id]);
 
+  useEffect(() => {
+    if (surveyId) {
+      const interval = setInterval(() => {
+        api.getLocks(surveyId).then(res => setLocks(res.data)).catch(() => {});
+      }, 5000);
+      api.getLocks(surveyId).then(res => setLocks(res.data)).catch(() => {});
+      return () => clearInterval(interval);
+    }
+  }, [surveyId]);
+
   const loadSurvey = async () => {
     try {
       const res = await api.getSurvey(id);
@@ -131,8 +158,49 @@ export default function Editor() {
       setDescription(res.data.description || '');
       setQuestions(res.data.questions || []);
       setDisplayMode(res.data.display_mode || 'all');
+      lastTitleRef.current = res.data.title;
+      lastQuestionsRef.current = JSON.stringify(res.data.questions || []);
     } catch (e) {
       message.error('加载失败');
+    }
+  };
+
+  const logOperation = useCallback(async (action, question, detail) => {
+    if (!surveyId) return;
+    try {
+      await api.addOperationLog(surveyId, {
+        user_email: CURRENT_USER.email,
+        user_name: CURRENT_USER.name,
+        action,
+        question_id: question?.id,
+        question_title: question?.title,
+        detail
+      });
+    } catch (e) {}
+  }, [surveyId]);
+
+  const handleSelectQ = async (qId) => {
+    if (!surveyId) {
+      setActiveQ(qId);
+      return;
+    }
+    try {
+      const res = await api.acquireLock(surveyId, {
+        question_id: qId,
+        user_email: CURRENT_USER.email,
+        user_name: CURRENT_USER.name
+      });
+      if (res.data.locked) {
+        setActiveQ(qId);
+        setLocks(prev => {
+          const others = prev.filter(l => l.question_id !== qId);
+          return [...others, res.data.lock];
+        });
+      } else {
+        message.warning(res.data.message || '该题正在被其他人编辑');
+      }
+    } catch (e) {
+      setActiveQ(qId);
     }
   };
 
@@ -140,6 +208,7 @@ export default function Editor() {
     const newQ = createQuestion(type);
     setQuestions([...questions, newQ]);
     setActiveQ(newQ.id);
+    logOperation('create_question', newQ);
   };
 
   const handleDragStart = (event) => {
@@ -152,17 +221,28 @@ export default function Editor() {
     if (over && active.id !== over.id) {
       const oldIndex = questions.findIndex(q => q.id === active.id);
       const newIndex = questions.findIndex(q => q.id === over.id);
-      setQuestions(arrayMove(questions, oldIndex, newIndex));
+      const newQs = arrayMove(questions, oldIndex, newIndex);
+      setQuestions(newQs);
+      logOperation('reorder_question', questions[oldIndex], `从第${oldIndex + 1}位移到第${newIndex + 1}位`);
     }
   };
 
   const handleDeleteQ = (qId) => {
+    const q = questions.find(x => x.id === qId);
     setQuestions(questions.filter(q => q.id !== qId));
     if (activeQ === qId) setActiveQ(null);
+    if (surveyId) {
+      api.releaseLock(surveyId, qId, { user_email: CURRENT_USER.email }).catch(() => {});
+    }
+    logOperation('delete_question', q);
   };
 
   const updateQuestion = (qId, updates) => {
+    const q = questions.find(x => x.id === qId);
     setQuestions(questions.map(q => q.id === qId ? { ...q, ...updates } : q));
+    if (updates.title && updates.title !== q?.title) {
+      logOperation('update_question', { ...q, ...updates }, `标题变更`);
+    }
   };
 
   const addOption = (qId, field) => {
@@ -205,14 +285,22 @@ export default function Editor() {
     setSaving(true);
     try {
       const data = { title, description, questions, display_mode: displayMode };
+      let createdId = surveyId;
       if (surveyId) {
         await api.updateSurvey(surveyId, data);
+        if (title !== lastTitleRef.current) {
+          logOperation('update_survey', null, `标题: ${lastTitleRef.current} → ${title}`);
+        }
       } else {
         const res = await api.createSurvey(data);
+        createdId = res.data.id;
         setSurveyId(res.data.id);
         window.history.replaceState(null, '', `/editor/${res.data.id}`);
       }
+      lastTitleRef.current = title;
+      lastQuestionsRef.current = JSON.stringify(questions);
       if (showMsg) message.success('保存成功');
+      return createdId;
     } catch (e) {
       message.error(e.response?.data?.error || '保存失败');
     } finally {
@@ -221,8 +309,8 @@ export default function Editor() {
   };
 
   const handlePublish = async () => {
-    await handleSave(false);
-    if (surveyId) setPublishVisible(true);
+    const sid = await handleSave(false);
+    if (sid || surveyId) setPublishVisible(true);
   };
 
   const activeQuestion = questions.find(q => q.id === activeQ);
@@ -233,40 +321,49 @@ export default function Editor() {
       return <Empty description="请选择题目进行编辑" />;
     }
     const q = activeQuestion;
+    const lock = locks.find(l => l.question_id === q.id);
+    const isLocked = lock && lock.user_email !== CURRENT_USER.email;
+
     return (
       <div>
-        <div style={{ fontWeight: 'bold', marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }}>
-          题目属性
+        <div style={{ fontWeight: 'bold', marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>题目属性</span>
+          {lock && <EditLockBadge lock={lock} />}
         </div>
+        {isLocked && (
+          <div style={{ color: '#faad14', marginBottom: 12, fontSize: 12 }}>
+            <LockOutlined /> 该题目正被其他人编辑，您只能查看
+          </div>
+        )}
         <Form layout="vertical">
           <Form.Item label="题目标题">
-            <TextArea rows={2} value={q.title} onChange={(e) => updateQuestion(q.id, { title: e.target.value })} placeholder="请输入题目标题" />
+            <TextArea rows={2} value={q.title} disabled={isLocked} onChange={(e) => updateQuestion(q.id, { title: e.target.value })} placeholder="请输入题目标题" />
           </Form.Item>
           <Form.Item label="是否必填">
-            <Switch checked={q.required} onChange={(v) => updateQuestion(q.id, { required: v })} />
+            <Switch checked={q.required} disabled={isLocked} onChange={(v) => updateQuestion(q.id, { required: v })} />
           </Form.Item>
 
           {(q.type === 'single' || q.type === 'multi' || q.type === 'sort') && (
             <Form.Item label="选项">
               {q.options.map((opt, i) => (
                 <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                  <Input value={opt} onChange={(e) => updateOption(q.id, 'options', i, e.target.value)} placeholder={`选项${i + 1}`} />
-                  <Button type="text" danger icon={<MinusCircleOutlined />} onClick={() => removeOption(q.id, 'options', i)} disabled={q.options.length <= 2} />
+                  <Input value={opt} disabled={isLocked} onChange={(e) => updateOption(q.id, 'options', i, e.target.value)} placeholder={`选项${i + 1}`} />
+                  <Button type="text" danger icon={<MinusCircleOutlined />} disabled={isLocked || q.options.length <= 2} onClick={() => removeOption(q.id, 'options', i)} />
                 </div>
               ))}
-              <Button type="dashed" block icon={<PlusOutlined />} onClick={() => addOption(q.id, 'options')}>添加选项</Button>
+              <Button type="dashed" block disabled={isLocked} icon={<PlusOutlined />} onClick={() => addOption(q.id, 'options')}>添加选项</Button>
             </Form.Item>
           )}
 
           {q.type === 'text' && (
             <Form.Item label="占位符">
-              <Input value={q.placeholder || ''} onChange={(e) => updateQuestion(q.id, { placeholder: e.target.value })} />
+              <Input value={q.placeholder || ''} disabled={isLocked} onChange={(e) => updateQuestion(q.id, { placeholder: e.target.value })} />
             </Form.Item>
           )}
 
           {q.type === 'rating' && (
             <Form.Item label="最大星数">
-              <InputNumber min={3} max={10} value={q.maxStars} onChange={(v) => updateQuestion(q.id, { maxStars: v })} />
+              <InputNumber min={3} max={10} value={q.maxStars} disabled={isLocked} onChange={(v) => updateQuestion(q.id, { maxStars: v })} />
             </Form.Item>
           )}
 
@@ -275,20 +372,20 @@ export default function Editor() {
               <Form.Item label="行标题">
                 {q.rows.map((r, i) => (
                   <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                    <Input value={r} onChange={(e) => updateOption(q.id, 'rows', i, e.target.value)} placeholder={`行${i + 1}`} />
-                    <Button type="text" danger icon={<MinusCircleOutlined />} onClick={() => removeOption(q.id, 'rows', i)} disabled={q.rows.length <= 2} />
+                    <Input value={r} disabled={isLocked} onChange={(e) => updateOption(q.id, 'rows', i, e.target.value)} placeholder={`行${i + 1}`} />
+                    <Button type="text" danger icon={<MinusCircleOutlined />} disabled={isLocked || q.rows.length <= 2} onClick={() => removeOption(q.id, 'rows', i)} />
                   </div>
                 ))}
-                <Button type="dashed" block icon={<PlusOutlined />} onClick={() => addOption(q.id, 'rows')}>添加行</Button>
+                <Button type="dashed" block disabled={isLocked} icon={<PlusOutlined />} onClick={() => addOption(q.id, 'rows')}>添加行</Button>
               </Form.Item>
               <Form.Item label="列标题">
                 {q.cols.map((c, i) => (
                   <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                    <Input value={c} onChange={(e) => updateOption(q.id, 'cols', i, e.target.value)} placeholder={`列${i + 1}`} />
-                    <Button type="text" danger icon={<MinusCircleOutlined />} onClick={() => removeOption(q.id, 'cols', i)} disabled={q.cols.length <= 2} />
+                    <Input value={c} disabled={isLocked} onChange={(e) => updateOption(q.id, 'cols', i, e.target.value)} placeholder={`列${i + 1}`} />
+                    <Button type="text" danger icon={<MinusCircleOutlined />} disabled={isLocked || q.cols.length <= 2} onClick={() => removeOption(q.id, 'cols', i)} />
                   </div>
                 ))}
-                <Button type="dashed" block icon={<PlusOutlined />}>添加列</Button>
+                <Button type="dashed" block disabled={isLocked} icon={<PlusOutlined />} onClick={() => addOption(q.id, 'cols')}>添加列</Button>
               </Form.Item>
             </>
           )}
@@ -304,6 +401,7 @@ export default function Editor() {
                       <Select
                         style={{ flex: 1 }}
                         allowClear
+                        disabled={isLocked}
                         placeholder="不设置"
                         value={q.branching?.[branchKey]}
                         onChange={(v) => {
@@ -332,7 +430,7 @@ export default function Editor() {
   return (
     <div>
       <Card style={{ marginBottom: 16 }}>
-        <Space style={{ marginBottom: 16 }}>
+        <Space style={{ marginBottom: 16 }} wrap>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/surveys')}>返回</Button>
           <Input value={title} onChange={(e) => setTitle(e.target.value)} style={{ width: 300 }} placeholder="问卷标题" />
           <Select value={displayMode} onChange={setDisplayMode} style={{ width: 140 }}>
@@ -341,7 +439,18 @@ export default function Editor() {
           </Select>
         </Space>
         <TextArea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="问卷描述（选填）" style={{ marginBottom: 16 }} />
-        <Space style={{ justifyContent: 'flex-end', display: 'flex' }}>
+        <Space style={{ justifyContent: 'flex-end', display: 'flex' }} wrap>
+          <Tooltip title="协作编辑">
+            <Button icon={<TeamOutlined />} onClick={() => setCollabVisible(true)} disabled={!surveyId}>
+              协作
+            </Button>
+          </Tooltip>
+          <LogicValidatorPanel surveyId={surveyId} questions={questions} />
+          <Tooltip title="配额控制">
+            <Button onClick={() => setQuotaVisible(true)} disabled={!surveyId}>
+              配额控制
+            </Button>
+          </Tooltip>
           <Button icon={<SaveOutlined />} loading={saving} onClick={() => handleSave()}>保存</Button>
           <Button type="primary" icon={<SendOutlined />} loading={saving} onClick={handlePublish}>发布问卷</Button>
         </Space>
@@ -370,8 +479,9 @@ export default function Editor() {
                     question={q}
                     index={i}
                     isActive={activeQ === q.id}
-                    onSelect={setActiveQ}
+                    onSelect={handleSelectQ}
                     onDelete={handleDeleteQ}
+                    lock={locks.find(l => l.question_id === q.id)}
                   />
                 ))}
               </SortableContext>
@@ -397,6 +507,22 @@ export default function Editor() {
           surveyId={surveyId}
           onClose={() => { setPublishVisible(false); loadSurvey(); }}
         />
+      )}
+
+      {surveyId && (
+        <>
+          <CollaboratorPanel
+            surveyId={surveyId}
+            visible={collabVisible}
+            onClose={() => setCollabVisible(false)}
+          />
+          <QuotaPanel
+            surveyId={surveyId}
+            questions={questions}
+            visible={quotaVisible}
+            onClose={() => setQuotaVisible(false)}
+          />
+        </>
       )}
     </div>
   );

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Table, Space, Tag, Popconfirm, Modal, message, Card, Row, Col, Input, Select } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, CopyOutlined, SendOutlined, PauseCircleOutlined, PlayCircleOutlined, StopOutlined, BarChartOutlined, LinkOutlined, EyeOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, CopyOutlined, SendOutlined, PauseCircleOutlined, PlayCircleOutlined, StopOutlined, BarChartOutlined, LinkOutlined, EyeOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import api from '../api';
 import dayjs from 'dayjs';
 
@@ -125,10 +125,20 @@ export default function SurveyList() {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 100,
+      width: 160,
       render: (s, r) => {
         if (r.is_paused) return <Tag color="orange">已暂停</Tag>;
         if (s === 'published') return <Tag color="green">已发布</Tag>;
+        if (r.scheduled_publish_time) {
+          return (
+            <Space>
+              <Tag color="default">草稿</Tag>
+              <Tag icon={<ClockCircleOutlined />} color="purple">
+                定时: {dayjs(r.scheduled_publish_time).format('MM-DD HH:mm')}
+              </Tag>
+            </Space>
+          );
+        }
         return <Tag color="default">草稿</Tag>;
       }
     },

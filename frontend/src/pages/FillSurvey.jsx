@@ -188,11 +188,18 @@ export default function FillSurvey() {
   const [needPassword, setNeedPassword] = useState(false);
   const [finished, setFinished] = useState(false);
   const [errorState, setErrorState] = useState(null);
+  const [startTime, setStartTime] = useState(null);
   const { message } = App.useApp();
 
   useEffect(() => {
     loadSurvey();
   }, [code]);
+
+  useEffect(() => {
+    if (survey && !needPassword && !errorState && !finished) {
+      setStartTime(Date.now());
+    }
+  }, [survey, needPassword, errorState, finished]);
 
   const loadSurvey = async () => {
     try {
@@ -327,14 +334,25 @@ export default function FillSurvey() {
     }
     setSubmitting(true);
     try {
+      const durationSeconds = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
       await api.submitResponse({
         survey_id: survey.id,
         answers,
-        respondent_info: { device: navigator.userAgent.substring(0, 100) }
+        respondent_info: { device: navigator.userAgent.substring(0, 100) },
+        duration_seconds: durationSeconds
       });
       setFinished(true);
     } catch (e) {
-      message.error(e.response?.data?.error || '提交失败');
+      const errorMsg = e.response?.data?.error || '提交失败';
+      if (errorMsg.includes('配额') || errorMsg.includes('已满') || errorMsg.includes('quota')) {
+        Modal.error({
+          title: '提交失败',
+          content: errorMsg,
+          okText: '知道了'
+        });
+      } else {
+        message.error(errorMsg);
+      }
     } finally {
       setSubmitting(false);
       setShowConfirm(false);

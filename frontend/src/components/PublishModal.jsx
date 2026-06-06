@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Form, DatePicker, InputNumber, Input, Button, message, App } from 'antd';
-import { LinkOutlined } from '@ant-design/icons';
+import { Modal, Form, DatePicker, InputNumber, Input, Button, message, App, Card, Tag, Space, Alert } from 'antd';
+import { LinkOutlined, ScheduleOutlined, RocketOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api';
 
@@ -8,6 +8,7 @@ export default function PublishModal({ visible, surveyId, onClose }) {
   const [form] = Form.useForm();
   const [published, setPublished] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [publishMode, setPublishMode] = useState('now');
   const { message } = App.useApp();
 
   useEffect(() => {
@@ -24,8 +25,12 @@ export default function PublishModal({ visible, surveyId, onClose }) {
         start_time: s.start_time ? dayjs(s.start_time) : null,
         end_time: s.end_time ? dayjs(s.end_time) : null,
         max_responses: s.max_responses,
-        password: s.password || ''
+        password: s.password || '',
+        scheduled_publish_time: s.scheduled_publish_time ? dayjs(s.scheduled_publish_time) : null
       });
+      if (s.scheduled_publish_time) {
+        setPublishMode('scheduled');
+      }
       if (s.status === 'published') {
         setPublished({ short_code: s.short_code, is_paused: s.is_paused });
       }
@@ -42,9 +47,16 @@ export default function PublishModal({ visible, surveyId, onClose }) {
         max_responses: values.max_responses || null,
         password: values.password || null
       };
+      if (publishMode === 'scheduled' && values.scheduled_publish_time) {
+        data.scheduled_publish_time = values.scheduled_publish_time.toISOString();
+      }
       const res = await api.publishSurvey(surveyId, data);
-      setPublished({ short_code: res.data.short_code, is_paused: false });
-      message.success('发布成功');
+      if (res.data.scheduled) {
+        message.success(`已设置定时发布，将于 ${dayjs(res.data.scheduled_publish_time).format('YYYY-MM-DD HH:mm')} 自动发布`);
+      } else {
+        setPublished({ short_code: res.data.short_code, is_paused: false });
+        message.success('发布成功');
+      }
     } catch (e) {
       if (e.errorFields) return;
       message.error('发布失败');
@@ -89,11 +101,52 @@ export default function PublishModal({ visible, surveyId, onClose }) {
     >
       {!published ? (
         <Form form={form} layout="vertical">
-          <Form.Item label="开始时间" name="start_time">
+          <Card size="small" style={{ marginBottom: 16 }}>
+            <Space style={{ marginBottom: 12 }}>
+              <Button
+                type={publishMode === 'now' ? 'primary' : 'default'}
+                icon={<RocketOutlined />}
+                onClick={() => setPublishMode('now')}
+              >
+                立即发布
+              </Button>
+              <Button
+                type={publishMode === 'scheduled' ? 'primary' : 'default'}
+                icon={<ScheduleOutlined />}
+                onClick={() => setPublishMode('scheduled')}
+              >
+                定时发布
+              </Button>
+            </Space>
+            {publishMode === 'scheduled' && (
+              <Alert
+                type="info"
+                showIcon
+                message="定时发布将在设定时间自动从草稿变为发布状态"
+                style={{ marginBottom: 12 }}
+              />
+            )}
+            {publishMode === 'scheduled' && (
+              <Form.Item
+                label="定时发布时间"
+                name="scheduled_publish_time"
+                rules={[{ required: true, message: '请选择发布时间' }]}
+              >
+                <DatePicker
+                  showTime
+                  style={{ width: '100%' }}
+                  placeholder="选择发布时间"
+                  disabledDate={(current) => current && current < dayjs().startOf('day')}
+                />
+              </Form.Item>
+            )}
+          </Card>
+
+          <Form.Item label="开始收集时间" name="start_time">
             <DatePicker showTime style={{ width: '100%' }} placeholder="不设置则立即开始" />
           </Form.Item>
           <Form.Item
-            label="结束时间"
+            label="结束收集时间"
             name="end_time"
             rules={[{
               validator: (_, value) => {
@@ -115,7 +168,9 @@ export default function PublishModal({ visible, surveyId, onClose }) {
           </Form.Item>
           <div style={{ textAlign: 'right', marginTop: 16 }}>
             <Button onClick={onClose} style={{ marginRight: 8 }}>取消</Button>
-            <Button type="primary" loading={loading} onClick={handleSubmit}>确认发布</Button>
+            <Button type="primary" loading={loading} onClick={handleSubmit}>
+              {publishMode === 'scheduled' ? '设置定时发布' : '确认发布'}
+            </Button>
           </div>
         </Form>
       ) : (

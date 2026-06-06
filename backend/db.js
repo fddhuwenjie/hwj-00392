@@ -46,6 +46,7 @@ function createTables() {
       password TEXT,
       short_code TEXT UNIQUE,
       is_paused INTEGER DEFAULT 0,
+      scheduled_publish_time TEXT,
       created_at TEXT DEFAULT (datetime('now','localtime')),
       updated_at TEXT DEFAULT (datetime('now','localtime'))
     );
@@ -56,6 +57,9 @@ function createTables() {
       answers TEXT NOT NULL,
       submit_time TEXT DEFAULT (datetime('now','localtime')),
       respondent_info TEXT,
+      quality_score INTEGER DEFAULT 100,
+      quality_flags TEXT,
+      duration_seconds INTEGER DEFAULT 0,
       FOREIGN KEY (survey_id) REFERENCES surveys(id) ON DELETE CASCADE
     );
 
@@ -69,8 +73,78 @@ function createTables() {
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );
 
+    CREATE TABLE IF NOT EXISTS collaborators (
+      id TEXT PRIMARY KEY,
+      survey_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      name TEXT,
+      permission TEXT DEFAULT 'edit',
+      invited_at TEXT DEFAULT (datetime('now','localtime')),
+      FOREIGN KEY (survey_id) REFERENCES surveys(id) ON DELETE CASCADE,
+      UNIQUE(survey_id, email)
+    );
+
+    CREATE TABLE IF NOT EXISTS edit_locks (
+      id TEXT PRIMARY KEY,
+      survey_id TEXT NOT NULL,
+      question_id TEXT NOT NULL,
+      user_email TEXT NOT NULL,
+      user_name TEXT,
+      locked_at TEXT DEFAULT (datetime('now','localtime')),
+      FOREIGN KEY (survey_id) REFERENCES surveys(id) ON DELETE CASCADE,
+      UNIQUE(survey_id, question_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS operation_logs (
+      id TEXT PRIMARY KEY,
+      survey_id TEXT NOT NULL,
+      user_email TEXT NOT NULL,
+      user_name TEXT,
+      action TEXT NOT NULL,
+      question_id TEXT,
+      question_title TEXT,
+      detail TEXT,
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      FOREIGN KEY (survey_id) REFERENCES surveys(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS quota_rules (
+      id TEXT PRIMARY KEY,
+      survey_id TEXT NOT NULL,
+      question_id TEXT NOT NULL,
+      question_title TEXT,
+      answer_value TEXT NOT NULL,
+      max_count INTEGER NOT NULL DEFAULT 0,
+      current_count INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      FOREIGN KEY (survey_id) REFERENCES surveys(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      survey_id TEXT,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT,
+      is_read INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now','localtime'))
+    );
+
+    CREATE TABLE IF NOT EXISTS milestone_notified (
+      id TEXT PRIMARY KEY,
+      survey_id TEXT NOT NULL,
+      milestone INTEGER NOT NULL,
+      notified_at TEXT DEFAULT (datetime('now','localtime')),
+      FOREIGN KEY (survey_id) REFERENCES surveys(id) ON DELETE CASCADE,
+      UNIQUE(survey_id, milestone)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_responses_survey ON responses(survey_id);
     CREATE INDEX IF NOT EXISTS idx_surveys_short ON surveys(short_code);
+    CREATE INDEX IF NOT EXISTS idx_collaborators_survey ON collaborators(survey_id);
+    CREATE INDEX IF NOT EXISTS idx_logs_survey ON operation_logs(survey_id);
+    CREATE INDEX IF NOT EXISTS idx_quotas_survey ON quota_rules(survey_id);
+    CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(is_read);
   `);
 }
 
